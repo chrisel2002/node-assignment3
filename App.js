@@ -1,6 +1,22 @@
 
 const express = require("express");
 const mongoose = require("mongoose");
+const winston = require("winston");
+const logger = winston.createLogger({
+  level: "info", 
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message }) => {
+      return `${timestamp} [${level}]: ${message}`;
+    })
+  ),
+  transports: [
+    new winston.transports.Console(), 
+    new winston.transports.File({ filename: "app.log" }), 
+  ],
+});
+
+
 
 const app = express();
 app.use(express.json());
@@ -10,10 +26,10 @@ mongoose.connect("mongodb://localhost:27017/mynewdb", {
   useUnifiedTopology: true,
 })
 .then(() => {
-  console.log("Connected to database");
+  logger.info("Connected to database");
 })
 .catch(err => {
-  console.error("Error connecting to database:", err);
+  logger.error("Error connecting to database:", err);
 });
 
 const schema = {
@@ -25,9 +41,31 @@ const schema = {
 const mongomodel = mongoose.model("users1", schema);
 
 app.post("/post", async (req, res) => {
-  console.log("Inside POST function");
+  logger.info("Inside POST function");
+
+  // Check for required fields
+  if (!req.body.name || !req.body.email || !req.body.id) {
+    const errorMessage = "Missing required fields: name, email, or id";
+    logger.error(errorMessage);
+
+    return res.status(400).json({
+      status: 400,
+      message: errorMessage,
+    });
+  }
 
   try {
+    const existingUser = await mongomodel.findOne({ email: req.body.email});
+
+    if (existingUser) {
+      const errorMessage = "User with the same Email already exists";
+      logger.error(errorMessage);
+
+      return res.status(409).json({
+        status: 409,
+        message: errorMessage,
+      });
+    }
     const data = new mongomodel({
       name: req.body.name,
       email: req.body.email,
@@ -35,16 +73,30 @@ app.post("/post", async (req, res) => {
     });
 
     const savedData = await data.save();
-    console.log("Data saved:", savedData);
-    res.send("Posted");
+    logger.info("Data saved:", savedData);
+
+    const status = 200;
+    const message = "User created successfully";
+
+    res.json({
+      status: status,
+      message: message,
+      data: savedData,
+    });
   } catch (error) {
-    console.error("Error saving data:", error);
-    res.status(500).send("Internal Server Error");
+    logger.error("Error saving data:", error);
+    const statusCode = error.statusCode || 500;
+    const statusMessage = error.message || "Internal Server Error";
+
+    res.status(statusCode).json({
+      status: statusCode,
+      message: statusMessage,
+    });
   }
 });
 
 app.put("/update/:id", async (req, res) => {
-  console.log("Inside PUT function");
+  logger.info("Inside PUT function");
 
   let upid = req.params.id;
   let upname = req.body.name;
@@ -58,39 +110,39 @@ app.put("/update/:id", async (req, res) => {
     );
 
     if (updatedData === null) {
-      console.log("No data found for update");
-      res.send("Nothing found");
+      logger.info("No data found for update");
+      res.status(404).send({message:"Nothing found"});
     } else {
-      console.log("Updated data:", updatedData);
+      logger.info("Updated data:", updatedData);
       res.send(updatedData);
     }
   } catch (error) {
-    console.error("Error updating document:", error);
+    logger.error("Error updating document:", error);
     res.status(500).send("Internal Server Error");
   }
 });
 
 app.get("/users", async (req, res) => {
-  console.log("Inside GET function");
+  logger.info("Inside GET function");
 
   try {
     const users = await mongomodel.find();
 
     if (users.length === 0) {
-      console.log("No users found");
-      res.send("No users found");
+      logger.info("No users found");
+      res.status(400).send("No users found");
     } else {
-      console.log("Users found:", users);
+      logger.info("Users found:", users);
       res.send(users);
     }
   } catch (error) {
-    console.error("Error retrieving users:", error);
-    res.status(500).send("Internal Server Error");
+    logger.info("Error retrieving users:", error);
+    res.send("Internal Server Error");
   }
 });
 
-app.listen(3005, () => {
-  console.log("Server is running on port 3005");
+app.listen(3006, () => {
+  logger.info("Server is running on port 3006");
 });
 
 module.exports = app; 
